@@ -1,15 +1,76 @@
 trigger:
-  - main
+  - main  # Runs the pipeline when code is pushed to 'main' branch
 
-resources:
-  repositories:
-    - repository: self
+variables:
+  dockerRegistryServiceConnection: '39944cd6-c323-4292-bec9-8da37c4f467d'  
+  imageName: 'bucky0838/node_project'  
+  dockerfilePath: 'Dockerfile'
 
-extends:
-  template: azure-template.yml
-  parameters:
-    dockerRegistryServiceConnection: '39944cd6-c323-4292-bec9-8da37c4f467d'
-    imageName: 'bucky0838/node_project'
-    dockerfilePath: 'Dockerfile'
-    vmImage: 'ubuntu-latest'
+stages:
+- stage: Build
+  displayName: "Build Stage"
+  jobs:
+  - job: BuildJob
+    displayName: "Install Node.js Dependencies"
+    pool:
+      name: "Default"  # Change to your self-hosted agent pool name
+    steps:
+    - task: NodeTool@0
+      inputs:
+        versionSpec: '10.x'  # Use Node.js 10 (matches your Dockerfile)
 
+    - script: npm install
+      displayName: "Install dependencies"
+
+    - script: echo "Build completed successfully!"
+      displayName: "Build Success"
+
+- stage: DockerBuild
+  displayName: "Build & Push Docker Image"
+  dependsOn: Build
+  condition: succeeded()  # Runs only if Build succeeds
+  jobs:
+  - job: DockerJob
+    displayName: "Build and Push Docker Image"
+    pool:
+      name: "Default"  # Change to your self-hosted agent pool
+    steps:
+    - task: Docker@2
+      inputs:
+        command: 'buildAndPush'
+        repository: '$(imageName)'
+        dockerfile: '$(dockerfilePath)'
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        tags: 'latest'
+
+- stage: Deploy
+  displayName: "Deploy Stage"
+  dependsOn: DockerBuild
+  condition: succeeded()  # Runs only if DockerBuild succeeds
+  jobs:
+  - job: DeployJob
+    displayName: "Deploy Container"
+    pool:
+      name: "Default"  # Change to your self-hosted agent pool
+    steps:
+    - script: echo "Deploying the container..."
+      displayName: "Deployment Started"
+      
+    - script: |
+        docker pull $(imageName):latest
+        docker stop node_app || true
+        docker rm node_app || true
+        docker run -d -p 8080:8080 --name node_app $(imageName):latest
+      displayName: "Run Docker Container"
+
+- stage: FailureNotification
+  displayName: "Notify on Failure"
+  dependsOn: [Build, DockerBuild, Deploy]
+  condition: failed()  # Runs only if any of the previous stages fail
+  jobs:
+  - job: NotifyJob
+    displayName: "Send Failure Notification"
+    pool:
+      name: "Default"  # Change to your self-hosted agent pool
+    steps:
+    - script: echo "Pipeline failed! Notify the team."
