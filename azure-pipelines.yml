@@ -74,3 +74,15 @@ stages:
       name: "Default"  # Change to your self-hosted agent pool
     steps:
     - script: echo "Pipeline failed! Notify the team."
+
+- stage: SuccessNotification
+  displayName: "Notify on Success"
+  dependsOn: [Build, DockerBuild, Deploy]
+  condition: succeeded()  # Runs only if all previous stages succeed
+  jobs:
+  - job: NotifySuccessJob
+    displayName: "Send Success Notification"
+    pool:
+      name: "Default"  # Change to your self-hosted agent pool
+    steps:
+    - script: echo "Pipeline completed successfully! Notify the team."
